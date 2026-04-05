@@ -54,6 +54,25 @@ interface PaymentCallback {
 }
 
 /**
+ * Payment status response from status endpoint
+ */
+interface PaymentStatusResponse extends Partial<PaymentCallback> {
+    status?: "pending" | "success" | "failed" | string;
+    is_final?: boolean;
+    raw?: Record<string, any>;
+}
+
+/**
+ * Polling options for waiting on a final payment state
+ */
+interface PaymentStatusPollingOptions {
+    intervalMs?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    onPoll?: (status: PaymentStatusResponse) => void;
+}
+
+/**
  * WebSocket connection options
  */
 interface WebSocketOptions {
@@ -237,6 +256,71 @@ export class MpesaClient {
     }
 
     /**
+     * Query transaction status by CheckoutRequestID
+     * Useful as an alternative/fallback to WebSockets or for post-callback verification.
+     */
+    async getPaymentStatus(checkoutRequestID: string): Promise<PaymentStatusResponse> {
+        if (!checkoutRequestID) {
+            throw new Error("checkoutRequestID is required");
+        }
+
+        return this.request<PaymentStatusResponse>(
+            `/api/v1/payment_status/${encodeURIComponent(checkoutRequestID)}`,
+            {
+                method: "GET",
+            }
+        );
+    }
+
+    /**
+     * Poll payment status endpoint until a final state is reached or timeout occurs.
+     */
+    async waitForPaymentStatus(
+        checkoutRequestID: string,
+        options: PaymentStatusPollingOptions = {}
+    ): Promise<PaymentStatusResponse> {
+        const intervalMs = options.intervalMs ?? 3000;
+        const timeoutMs = options.timeoutMs ?? 120000;
+        const startedAt = Date.now();
+
+        while (true) {
+            if (options.signal?.aborted) {
+                throw new Error("Polling aborted");
+            }
+
+            const status = await this.getPaymentStatus(checkoutRequestID);
+            options.onPoll?.(status);
+
+            const hasResultCode = status.result_code !== undefined && status.result_code !== null;
+            const isFinalByFlag = status.is_final === true;
+            const isFinalByStatus =
+                status.status === "success" ||
+                status.status === "failed";
+
+            if (isFinalByFlag || isFinalByStatus || hasResultCode) {
+                return status;
+            }
+
+            if (Date.now() - startedAt >= timeoutMs) {
+                throw new Error(`Polling timeout after ${timeoutMs}ms`);
+            }
+
+            await new Promise<void>((resolve, reject) => {
+                const timeoutId = setTimeout(resolve, intervalMs);
+
+                if (options.signal) {
+                    const onAbort = () => {
+                        clearTimeout(timeoutId);
+                        options.signal?.removeEventListener("abort", onAbort);
+                        reject(new Error("Polling aborted"));
+                    };
+                    options.signal.addEventListener("abort", onAbort, { once: true });
+                }
+            });
+        }
+    }
+
+    /**
      * Connect to WebSocket for real-time payment updates
      */
     connectWebSocket(options: WebSocketOptions = {}): void {
@@ -356,6 +440,8 @@ export type {
     StkPushResponse,
     B2CRequest,
     PaymentCallback,
+    PaymentStatusResponse,
+    PaymentStatusPollingOptions,
     WebSocketOptions,
 };
 
