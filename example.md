@@ -150,6 +150,60 @@ try {
 // mpesa.disconnectWebSocket();
 ```
 
+## Alternative: Webhook + Status Endpoint (No WebSocket Required)
+
+This flow is ideal when the frontend cannot maintain sockets (or you want extra verification).
+
+```typescript
+// 1) Start STK push
+const initiated = await mpesa.stkPush({
+  senderPhoneNumber: '0712345678',
+  amount: '100',
+  transactionDescription: 'Order #1023'
+});
+
+// 2) Poll status endpoint until final result
+const finalStatus = await mpesa.waitForPaymentStatus(initiated.CheckoutRequestID, {
+  intervalMs: 3000,
+  timeoutMs: 120000,
+  onPoll: (status) => {
+    console.log('Current status:', status.status ?? 'pending');
+  }
+});
+
+// 3) Handle final status
+if (finalStatus.result_code === 0 || finalStatus.status === 'success') {
+  console.log('✅ Payment verified');
+} else {
+  console.log('❌ Payment not successful', finalStatus.result_description ?? finalStatus.status);
+}
+```
+
+### Use both WebSocket and status endpoint (recommended for verification)
+
+```typescript
+const initiated = await mpesa.stkPush({
+  senderPhoneNumber: '0712345678',
+  amount: '100',
+  transactionDescription: 'Order #1023'
+});
+
+let websocketStatus: any = null;
+
+mpesa.connectWebSocket({
+  onMessage: (data) => {
+    if (data.CheckoutRequestID === initiated.CheckoutRequestID) {
+      websocketStatus = data;
+      console.log('WebSocket update received:', data);
+    }
+  }
+});
+
+// Always verify using HTTP status endpoint before fulfillment
+const verified = await mpesa.getPaymentStatus(initiated.CheckoutRequestID);
+console.log('Verified status:', verified);
+```
+
 ## React Example
 
 ```tsx
