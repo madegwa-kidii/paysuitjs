@@ -1,6 +1,6 @@
 {
   "name": "paysuitjs",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "A TypeScript and javascript M-Pesa payments library",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -21,7 +21,12 @@
   "files": [
     "dist"
   ],
-  "keywords": ["mpesa", "typescript", "payments", "daraja"],
+  "keywords": [
+    "mpesa",
+    "typescript",
+    "payments",
+    "daraja"
+  ],
   "author": "Madegwa Kidii",
   "license": "MIT",
   "repository": {
